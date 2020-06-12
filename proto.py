@@ -121,7 +121,7 @@ def decode_event(side, packet, fromfd):
 			return event
 
 		elif event_key == 'sline':
-			data = { 'line': unpack_from('>1510s', packet, 2).rstrip(b'\x00')}
+			data = { 'line': unpack_from('>512s', packet, 2).rstrip(b'\x00')}
 			return Event(name='console', data=data, from_fd=fromfd)
 			
 		elif event_key == 'sset':
@@ -129,7 +129,7 @@ def decode_event(side, packet, fromfd):
 			if unpack_from('>H', packet, 2) < 5:
 				data['value'] = unpack_from('>L', packet, 4)
 			else:
-				data['value'] = unpack_from('>1508s', packet, 4).rstrip(b'\x00')
+				data['value'] = unpack_from('>512s', packet, 4).rstrip(b'\x00')
 			event = Event(name='value_changed', data=data, from_fd=fromfd)
 			return event
 			
@@ -146,18 +146,18 @@ def decode_event(side, packet, fromfd):
 			if unpack_from('>H', packet, 2) < 5:
 				data['value'] = unpack_from('>L', packet, 4)
 			else:
-				data['value'] = unpack_from('>15120s', packet, 4).rstrip(b'\x00')
+				data['value'] = unpack_from('>1024s', packet, 4).rstrip(b'\x00')
 			event = Event(name='answer', data=data, from_fd=fromfd)
 			return event
 			
 			
 		elif event_key == 'snewworld':
-			data = {'name': unpack_from('>1510s', packet, 2).rstrip(b'\x00')}
+			data = {'name': unpack_from('>512s', packet, 2).rstrip(b'\x00')}
 			event = Event(name = 'new_world', data = data, from_fd = fromfd)
 			return event
 
 		elif event_key == 'sdelworld':
-			data = {'name': unpack_from('>1510s', packet, 2).rstrip(b'\x00')}
+			data = {'name': unpack_from('>512s', packet, 2).rstrip(b'\x00')}
 			event = Event(name = 'rem_world', data = data, from_fd = fromfd)
 			return event
 
@@ -175,7 +175,7 @@ def decode_event(side, packet, fromfd):
 			return event
 			
 		elif event_key == 'sselect':
-			data = {'name': unpack_from('>1510s', packet, 2).rstrip(b'\x00')}
+			data = {'name': unpack_from('>512s', packet, 2).rstrip(b'\x00')}
 			event = Event(name = 'select_world', data = data, from_fd = fromfd)
 			return event
 			
@@ -192,12 +192,12 @@ def decode_event(side, packet, fromfd):
 			return event
 
 		elif event_key == 'sedit':
-			data = {'text': unpack_from('>5120s', packet, 2).rstrip(b'\x00')}
+			data = {'text': unpack_from('>1024s', packet, 2).rstrip(b'\x00')}
 			event = Event(name = 'server.prop_edited', data = data, from_fd = fromfd)
 			return event
 
 		elif event_key == 'sdownload':
-			data = {'raw': unpack_from('>15120s', packet, 2).rstrip(b'\x00')}
+			data = {'raw': unpack_from('>1024s', packet, 2).rstrip(b'\x00')}
 			event = Event(name = 'send_file_part', data = data, from_fd = fromfd)
 			return event
 
@@ -224,14 +224,14 @@ def decode_event(side, packet, fromfd):
 			return event
 			
 		elif event_key == 'cconsole':
-			data = {'text': unpack_from('>1510s', packet, 2).rstrip(b'\x00')}
+			data = {'text': unpack_from('>512s', packet, 2).rstrip(b'\x00')}
 			event = Event(name = 'write_console', data = data, from_fd = fromfd)
 			return event
 			
 		elif event_key == 'cget':
 			data = {'name': unpack_from('>H', packet, 2)}
 			if data['name'] == 11 or data['name'] == 13:
-				data['args'] = unpack_from('>1510s', packet, 4).rstrip(b'\x00')
+				data['args'] = unpack_from('>512s', packet, 4).rstrip(b'\x00')
 			data['name'] = itervalids(data['name'])
 			event = Event(name = 'get', data = data, from_fd = fromfd)
 			return event
@@ -241,7 +241,7 @@ def decode_event(side, packet, fromfd):
 			if data['name'] < 5:
 				data['value'] = unpack_from('>L', packet, 4)
 			else:
-				data['value'] = unpack_from('>1510s', packet, 4).rstrip(b'\x00')
+				data['value'] = unpack_from('>512s', packet, 4).rstrip(b'\x00')
 			data['name'] = itervalids(data['name'])
 			event = Event(name = 'set', data = data, from_fd = fromfd)
 			return event
@@ -267,22 +267,22 @@ def decode_event(side, packet, fromfd):
 			return event
 			
 		elif event_key == 'crecover':
-			data = {'filename': unpack_from('>1510s', packet, 2).rstrip(b'\x00')}
+			data = {'filename': unpack_from('>512s', packet, 2).rstrip(b'\x00')}
 			event = Event(name = 'recover_fr_backup', data = data, from_fd = fromfd)
 			return event
 			
 		elif event_key == 'cselect':
-			data = {'worldname': unpack_from('>1510s', packet, 2).rstrip(b'\x00')}
+			data = {'worldname': unpack_from('>512s', packet, 2).rstrip(b'\x00')}
 			event = Event(name = 'select_world', data = data, from_fd = fromfd)
 			return event
 			
 		elif event_key == 'cnew':
-			data = {'levelname': unpack_from('>1510s', packet, 2).rstrip(b'\x00')}
+			data = {'levelname': unpack_from('>512s', packet, 2).rstrip(b'\x00')}
 			event = Event(name = 'new_world', data = data, from_fd = fromfd)
 			return event
 			
 		elif event_key == 'cdelete':
-			data = {'worldname': unpack_from('>1510s', packet, 2).rstrip(b'\x00')}
+			data = {'worldname': unpack_from('>512s', packet, 2).rstrip(b'\x00')}
 			event = Event(name = 'delete_world', data = data, from_fd = fromfd)
 			return event
 			
@@ -293,17 +293,17 @@ def decode_event(side, packet, fromfd):
 			
 		elif event_key == 'capply':
 			data = {
-			'worldname': unpack_from('>1510s', packet, 2).rstrip(b'\x00'),
-			'path': unpack_from('>1510s', packet, struct.calcsize('>H1510s')).rstrip(b'\x00')
+			'worldname': unpack_from('>512s', packet, 2).rstrip(b'\x00'),
+			'path': unpack_from('>512s', packet, struct.calcsize('>H512s')).rstrip(b'\x00')
 			}
 			event = Event(name = 'apply_to_world', data = data, from_fd = fromfd)
 			return event
 			
 		elif event_key == 'cdiscard':
 			data = {
-			'worldname': unpack_from('>1510s', packet, 2).rstrip(b'\x00'),
-			'uuid': unpack_from('>36s', packet, struct.calcsize('>H1510s')),
-			'ver': unpack_from('>256s', packet, struct.calcsize('>H1510s36s')).rstrip(b'\x00')
+			'worldname': unpack_from('>512s', packet, 2).rstrip(b'\x00'),
+			'uuid': unpack_from('>36s', packet, struct.calcsize('>H512s')),
+			'ver': unpack_from('>256s', packet, struct.calcsize('>H512s36s')).rstrip(b'\x00')
 			}
 			event = Event(name = 'discard_from_world', data = data, from_fd = fromfd)
 			return event
@@ -328,14 +328,14 @@ def decode_event(side, packet, fromfd):
 			
 		elif event_key == 'cexport':
 			data = {
-			'worldname': unpack_from('>1510s', packet, 2).rstrip(b'\x00')
+			'worldname': unpack_from('>512s', packet, 2).rstrip(b'\x00')
 			}
 			event = Event(name = 'export', data = data, from_fd = fromfd)
 			return event
 			
 		elif event_key == 'cedit':
 			data = {
-			'prop': unpack_from('>5120s', packet, 2).rstrip(b'\x00')
+			'prop': unpack_from('>1024s', packet, 2).rstrip(b'\x00')
 			}
 			event = Event(name = 'prop_edit', data = data, from_fd = fromfd)
 			return event
@@ -367,7 +367,7 @@ def _encode_event(side, event):
 		elif event.name == 'console':
 			packet = S_HEADERS['sline']
 			llen = len(event.data['line'].encode())
-			packet += struct.pack('>1510s', event.data['line'].encode())
+			packet += struct.pack('>512s', event.data['line'].encode())
 
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
@@ -378,7 +378,7 @@ def _encode_event(side, event):
 			if VALUES_IDS[event.data['name']] < 5:
 				packet += struct.pack('>HL', VALUES_IDS[event.data['name']], event.data['value'])
 			else:
-				packet += struct.pack('>H1508s', VALUES_IDS[event.data['name']], event.data['value'].encode())
+				packet += struct.pack('>H512s', VALUES_IDS[event.data['name']], event.data['value'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
@@ -400,19 +400,19 @@ def _encode_event(side, event):
 			if VALUES_IDS[event.data['name']] < 5:
 				packet += struct.pack('>HL', VALUES_IDS[event.data['name']], event.data['value'])
 			else:
-				packet += struct.pack('>H15120s', VALUES_IDS[event.data['name']], event.data['value'].encode())
+				packet += struct.pack('>H1024s', VALUES_IDS[event.data['name']], event.data['value'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
 			
 		elif event.name == 'new_world':
-			packet = S_HEADERS['snewworld'] + struct.pack('>1510s', event.data['name'].encode())
+			packet = S_HEADERS['snewworld'] + struct.pack('>512s', event.data['name'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
 
 		elif event.name == 'rem_world':
-			packet = S_HEADERS['sdelworld'] + struct.pack('>1510s', event.data['name'].encode())
+			packet = S_HEADERS['sdelworld'] + struct.pack('>512s', event.data['name'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
@@ -430,7 +430,7 @@ def _encode_event(side, event):
 			return packet
 			
 		elif event.name == 'select_world':
-			packet = S_HEADERS['sselect'] + struct.pack('>1510s', event.data['name'].encode())
+			packet = S_HEADERS['sselect'] + struct.pack('>512s', event.data['name'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
@@ -454,13 +454,13 @@ def _encode_event(side, event):
 			return packet
 
 		elif event.name == 'server.prop_edited':
-			packet = S_HEADERS['sedit'] + struct.pack('>5120s', event.data['text'].encode())
+			packet = S_HEADERS['sedit'] + struct.pack('>1024s', event.data['text'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
 
 		elif event.name == 'send_file_part':
-			packet = S_HEADERS['sdownload'] + struct.pack('>15120s', event.data['raw'])
+			packet = S_HEADERS['sdownload'] + struct.pack('>1024s', event.data['raw'])
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
@@ -491,13 +491,13 @@ def _encode_event(side, event):
 			return packet
 			
 		elif event.name == 'write_console':
-			packet = CL_HEADERS['cconsole'] + struct.pack('>1510s', event.data['text'].encode())
+			packet = CL_HEADERS['cconsole'] + struct.pack('>512s', event.data['text'].encode())
 			return packet
 			
 		elif event.name == 'get':
 			packet = CL_HEADERS['cget']
 			if VALUES_IDS[event.data['value']] == 11 or VALUES_IDS[event.data['value']] == 13:
-				packet += struct.pack('>H1510s', VALUES_IDS[event.data['value']], event.data['args'].encode())
+				packet += struct.pack('>H512s', VALUES_IDS[event.data['value']], event.data['args'].encode())
 			else:
 				packet += struct.pack('>H', VALUES_IDS[event.data['value']])
 			return packet
@@ -507,7 +507,7 @@ def _encode_event(side, event):
 			if VALUES_IDS[event.data['name']] < 5:
 				packet += struct.pack('>HL', VALUES_IDS[event.data['name']], event.data['value'])
 			else:
-				packet += struct.pack('>H1510s', VALUES_IDS[event.data['name']], event.data['value'].encode())
+				packet += struct.pack('>H512s', VALUES_IDS[event.data['name']], event.data['value'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
@@ -537,25 +537,25 @@ def _encode_event(side, event):
 			return packet
 			
 		elif event.name == 'recover_fr_backup':
-			packet = CL_HEADERS['crecover'] + struct.pack('>1510s', event.data['filename'].encode())
+			packet = CL_HEADERS['crecover'] + struct.pack('>512s', event.data['filename'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
 			
 		elif event.name == 'select_world':
-			packet = CL_HEADERS['cselect'] + struct.pack('>1510s', event.data['worldname'].encode())
+			packet = CL_HEADERS['cselect'] + struct.pack('>512s', event.data['worldname'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
 			
 		elif event.name == 'new_world':
-			packet = CL_HEADERS['cnew'] + struct.pack('>1510s', event.data['levelname'].encode())
+			packet = CL_HEADERS['cnew'] + struct.pack('>512s', event.data['levelname'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
 			
 		elif event.name == 'delete_world':
-			packet = CL_HEADERS['cdelete'] + struct.pack('>1510s', event.data['worldname'].encode())
+			packet = CL_HEADERS['cdelete'] + struct.pack('>512s', event.data['worldname'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
@@ -567,13 +567,13 @@ def _encode_event(side, event):
 			return packet
 			
 		elif event.name == 'apply_to_world':
-			packet = CL_HEADERS['capply'] + struct.pack('>1510s1510s', event.data['worldname'].encode(), event.data['path'].encode())
+			packet = CL_HEADERS['capply'] + struct.pack('>512s512s', event.data['worldname'].encode(), event.data['path'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
 			
 		elif event.name == 'discard_from_world':
-			packet = CL_HEADERS['cdiscard'] + struct.pack('>1510s36s256s', event.data['worldname'].encode(), event.data['uuid'].encode(), event.data['ver'].encode())
+			packet = CL_HEADERS['cdiscard'] + struct.pack('>512s36s256s', event.data['worldname'].encode(), event.data['uuid'].encode(), event.data['ver'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
@@ -597,13 +597,13 @@ def _encode_event(side, event):
 			return packet
 			
 		elif event.name == 'export':
-			packet = CL_HEADERS['cexport'] + struct.pack('>1510s', self.data['worldname'])
+			packet = CL_HEADERS['cexport'] + struct.pack('>512s', self.data['worldname'])
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
 			
 		elif event.name == 'prop_edit':
-			packet = CL_HEADERS['cedit'] + struct.pack('>5120s', event.data['prop'])
+			packet = CL_HEADERS['cedit'] + struct.pack('>1024s', event.data['prop'])
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
