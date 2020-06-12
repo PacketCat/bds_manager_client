@@ -58,7 +58,7 @@ class Handler(QtCore.QObject):
 			buf = buf[2:]
 			data = buf[:lent]
 			buf = buf[lent:]
-			if lent < len(data):
+			if lent > len(data):
 				self.socket.waitForReadyRead()
 				lostdata = self.socket.read(lent - len(data))
 				data += lostdata
