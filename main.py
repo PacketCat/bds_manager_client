@@ -267,8 +267,8 @@ class ClientApp:
 		if result == 0:
 			self.logon.window.status.setText('Getting informations...')
 			self.get_data()
-			if self.logon.window.autologin.isChecked():
-				self.confs.new_save(self.serverdata['ip'], self.serverdata['port'], self.serverdata['password'])
+			# if self.logon.window.autologin.isChecked():
+			# 	self.confs.new_save(self.serverdata['ip'], self.serverdata['port'], self.serverdata['password'])
 		elif result == -1:
 			self.logon.setWindowTitle('BDSM - Waiting for password')
 			self.logon.window.ip.setEnabled(True)
