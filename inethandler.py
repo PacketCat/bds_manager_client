@@ -58,6 +58,7 @@ class Handler(QtCore.QObject):
 			buf = buf[2:]
 			data = buf[:struct.unpack('>H', lent)[0]]
 			buf = buf[struct.unpack('>H', lent)[0]:]
+			print(len(data))
 			self.buffer.append(data)
 			self.readyread()
 
@@ -99,7 +100,7 @@ class Handler(QtCore.QObject):
 	def get(self):
 		event = proto.decode_event(0, self.buffer.pop(0), 0)
 		if not event:
-			return proto.Event(name = error, data = {'code': 404})
+			return proto.Event(name = 'error', data = {'code': 404})
 		return event
 
 	def _handle_written(self, amount):
