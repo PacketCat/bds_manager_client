@@ -5,10 +5,15 @@ import sys, time, math, os, zipfile, shutil, json
 
 
 class Window(QtWidgets.QMainWindow):
-	def __init__(self, from_):
+	def __init__(self, app, from_):
 		super().__init__()
 		self.window = from_()
 		self.window.setupUi(self)
+		self.app = app
+
+	def closeEvent(self, event):
+		self.app.exiting = True
+		event.accept()
 
 
 class Dialog(QtWidgets.QDialog):
@@ -48,8 +53,8 @@ class Dialog(QtWidgets.QDialog):
 
 
 class QPackWidget(QtWidgets.QWidget):
-	def __init__(self, path, name, version, uuid, side):
-		super().__init__()
+	def __init__(self, parent, path, name, version, uuid, side):
+		super().__init__(parent = parent)
 		self.ui = PackWidget.Ui_Form()
 		self.ui.setupUi(self)
 		self.uuid = uuid
@@ -61,6 +66,7 @@ class QPackWidget(QtWidgets.QWidget):
 		self.side = side
 		if side == 1:
 			self.ui.unimport.hide()
+			self.ui.action.setText('<')
 
 
 class World(QtWidgets.QListWidgetItem):
@@ -73,7 +79,7 @@ class ClientApp:
 	def __init__(self):
 		self.appcore = QtWidgets.QApplication(sys.argv)
 
-		self.inethandler = None
+		self.inethandler = inethandler.Handler( self.connected, self.error, self.readyread_slot, self.disconnected)
 
 
 		self.values = {
@@ -101,6 +107,9 @@ class ClientApp:
 		'port': None,
 		'password': ''
 		}
+		self.exiting = False
+
+		self.dialogs = []
 
 		self.pending_event_buffer = []
 		self.waiting_event = {'event:key:value': 'function'}
@@ -108,16 +117,36 @@ class ClientApp:
 
 		self.confs = config_manager.Config()
 
-		self.logon = Window(LogonForm.Ui_Logon)
-		self.panel = Window(ServerPanel.Ui_MainWindow)
+		self.logon = Window(self, LogonForm.Ui_Logon)
+		self.panel = Window(self, ServerPanel.Ui_MainWindow)
 
 		self.logon.setWindowTitle("BDSM")
+
+		self.logon.window.settings.hide()
 
 		self.logon.window.nextb.clicked.connect(self.next_button_logon)
 		self.logon.window.ip.returnPressed.connect(self.next_button_logon)
 		self.logon.window.port.returnPressed.connect(self.logon.window.ip.setFocus)
 		self.logon.window.saves.currentTextChanged.connect(self.change_save)
 		self.logon.window.settings.clicked.connect(self.open_settings)
+		self.panel.window.console_input.returnPressed.connect(self.send_console)
+		self.panel.window.start_stop.clicked.connect(self.send_start_or_stop)
+		self.panel.window.restart.clicked.connect(self.send_restart)
+		self.panel.window.checkupdates.clicked.connect(self.send_checkupdates)
+		self.panel.window.new.clicked.connect(self.send_newworld)
+		self.panel.window.delete.clicked.connect(self.send_rmworld)
+		self.panel.window.select.clicked.connect(self.send_select)
+		self.panel.window.ban.clicked.connect(self.send_ban)
+		self.panel.window.kick.clicked.connect(self.send_kick)
+		self.panel.window.set_startup.clicked.connect(self.set_startup)
+		self.panel.window.set_checkupdate.clicked.connect(self.set_checkupdate)
+		self.panel.window.set_reboot.clicked.connect(self.set_reboot)
+		self.panel.window.set_backup.clicked.connect(self.set_backup)
+		self.panel.window.open_gamerules.clicked.connect(self.open_gamerules)
+		self.panel.window.open_packs.clicked.connect(self.open_packs)
+		self.panel.window.players.itemClicked.connect(self.activate_pbuttons)
+		self.panel.window.worlds.itemClicked.connect(self.activate_wbuttons)
+		self.panel.window.exit.clicked.connect(self.inethandler.disconnect)
 
 		self.logon_state = 0
 		self.logon_onllock = False
@@ -140,11 +169,10 @@ class ClientApp:
 			self.logon.window.ip.setText(self.confs.mconf['saves'][self.confs.mconf['settings']['current_save']][0])
 			self.logon.window.port.setText(str(self.confs.mconf['saves'][self.confs.mconf['settings']['current_save']][1]))
 			self.serverdata['password'] == self.confs.mconf['saves'][self.confs.mconf['settings']['current_save']][2]
+		self.logon.show()
 
 	def apprun(self):
-		if not self.dontshow_logon:
-			self.logon.show()
-		self.appcore.exec_()
+		sys.exit(self.appcore.exec_())
 
 	def change_save(self, name):
 
@@ -156,7 +184,7 @@ class ClientApp:
 			self.logon.window.ip.setEnabled(False)
 			self.logon.window.port.setEnabled(False)
 			self.logon.window.nextb.setEnabled(False)
-			self.logon.window.status.setStyleSheet("QLabel { color : black; }")
+			self.logon.window.status.setStyleSheet("")
 			self.logon.window.status.setText('Connecting...')
 			self.logon.setWindowTitle('BDSM - Connecting...')
 			self.create_connection([self.logon.window.ip.text(), int(self.logon.window.port.text())])
@@ -164,13 +192,13 @@ class ClientApp:
 			self.try_auth(self.logon.window.ip.text())
 
 	def create_connection(self, datalist):
-		self.inethandler = inethandler.Handler(datalist[:2], self.connected, self.error, self.readyread_slot, self.disconnected)
+		self.inethandler.connect(datalist[:2])
 		if len(datalist) == 3:
 			self.logon_onllock = True
 			self.try_auth(datalist[2])
 
 	def connected(self):
-		print('a')
+		# print('a')
 		self.logon_state = 1
 		self.serverdata['ip'] = self.logon.window.ip.text()
 		self.serverdata['port'] = int(self.logon.window.port.text())
@@ -185,14 +213,20 @@ class ClientApp:
 			self.logon.window.nextb.setEnabled(True)
 		self.logon.window.status.setText('')
 		self.logon.window.hint.setText('Enter password:')
+		self.logon.window.ip.setFocus()
 
 	def disconnected(self):
-		print('b')
+		if self.exiting:
+			return
+		self.inethandler = inethandler.Handler(self.connected, self.error, self.readyread_slot, self.disconnected)
+		self.panel.window.exit.clicked.connect(self.inethandler.disconnect)
 		self.return_to_logon()
+		self.logon.window.status.setText('Disconnect from server')
+		self.logon.setWindowTitle('BDSM')
 
 	def error(self, code):
-		print('c')
-		print(code)
+		# print('c')
+		# print(code)
 		if self.logon_state == 0:
 			self.logon.setWindowTitle('BDSM')
 			self.logon.window.ip.setEnabled(True)
@@ -200,15 +234,30 @@ class ClientApp:
 			self.logon.window.nextb.setEnabled(True)
 			self.logon.window.status.setText(self.inethandler.socket.errorString())
 			self.logon.window.status.setStyleSheet("QLabel { color : red; }")
-			self.logon.window.ip.returnPressed.connect(self.next_button_logon)
-			self.logon.window.port.returnPressed.connect(self.logon.window.ip.setFocus)
 			if self.logon_onllock:
 				self.logon_onllock = False
 				self.confs.change_settings('current_save', None)
+		else:
+			if code == -55:
+				QtWidgets.QMessageBox.critical(self.panel, 'Deleting world...', "Can't remove selected world while server running")
+			elif code == 12:
+				self.lock_buttons(False)
+				QtWidgets.QMessageBox.critical(self.panel, 'Start server', "Can't start server: server is not downloaded\nTry again")
+			elif code == 105:
+				self.lock_buttons(False)
+				self.values['online'] = 0
+				QtWidgets.QMessageBox.critical(self.panel, 'RuntimeError', "An exception occured on server start")
+			elif code == 106:
+				self.lock_buttons(False)
+				self.values['online'] = 0
+				QtWidgets.QMessageBox.critical(self.panel, 'RuntimeError', "An exception occured while running")
+			elif code == 404:
+				QtWidgets.QMessageBox.critical(self.panel, 'INVALID MESSAGE', "FATAL ERROR: CAN'T DECODE INCOMING EVENT")
+				sys.exit(-1)
 
 	def try_auth(self, password):
 		self.logon.setWindowTitle('BDSM - Checking password')
-		self.logon.window.status.setStyleSheet("QLabel { color : black; }")
+		self.logon.window.status.setStyleSheet("")
 		self.logon.window.status.setText('Checking password...')
 		self.logon.window.ip.setEnabled(False)
 		self.logon.window.nextb.setEnabled(False)
@@ -253,8 +302,8 @@ class ClientApp:
 			self.inethandler.put(proto.Event(name = 'get', data = {'value': 'world_info', 'args': self.values['selected']}))
 		else:
 			self.event_reader(proto.Event(name = 'world_info', data = {'name': 'None'}))
-			self.panel.window.packs.setEnabled(False)
-			self.panel.window.gamerules.setEnabled(False)
+			self.panel.window.open_packs.setEnabled(False)
+			self.panel.window.open_gamerules.setEnabled(False)
 
 
 	def go_to_panel(self):
@@ -262,22 +311,9 @@ class ClientApp:
 
 		self.logon_state = 2
 		self.panel.setWindowTitle(self.values['servername'])
-		self.panel.window.console_input.returnPressed.connect(self.send_console)
-		self.panel.window.start_stop.clicked.connect(self.send_start_or_stop)
-		self.panel.window.restart.clicked.connect(self.send_restart)
-		self.panel.window.checkupdates.clicked.connect(self.send_checkupdates)
-		self.panel.window.exit.clicked.connect(self.inethandler.disconnect)
-		self.panel.window.new.clicked.connect(self.send_newworld)
-		self.panel.window.delete.clicked.connect(self.send_rmworld)
-		self.panel.window.select.clicked.connect(self.send_select)
-		self.panel.window.ban.clicked.connect(self.send_ban)
-		self.panel.window.kick.clicked.connect(self.send_kick)
-		self.panel.window.set_startup.clicked.connect(self.set_startup)
-		self.panel.window.set_checkupdate.clicked.connect(self.set_checkupdate)
-		self.panel.window.set_reboot.clicked.connect(self.set_reboot)
-		self.panel.window.set_backup.clicked.connect(self.set_backup)
-		self.panel.window.open_gamerules.clicked.connect(self.open_gamerules)
-		self.panel.window.open_packs.clicked.connect(self.open_packs)
+
+		if self.values['online'] == 1:
+			self.panel.window.start_stop.setText('Stop')
 
 
 		#default_set
@@ -295,11 +331,12 @@ class ClientApp:
 				line = QtWidgets.QListWidgetItem(line[1:])
 				self.panel.window.console.addItem(line)
 			elif line.startswith('2'):
-				line = QtWidgets.QListWidgetItem(line[1:])
+				line = QtWidgets.QListWidgetItem('Console> ' + line[1:])
 				brush = QtGui.QBrush()
 				brush.setColor(QtGui.QColor(245, 169, 169))
 				line.setForeground(brush)
 				self.panel.window.console.addItem(line)
+			self.panel.window.console.scrollToItem(line)
 
 		self.panel.window.players.clear()
 		for name in self.values['players_online'].keys():
@@ -312,9 +349,9 @@ class ClientApp:
 			self.panel.window.worlds.addItem(w)
 
 		#signal-to-slot
-		self.panel.window.players.itemClicked.connect(self.activate_pbuttons)
-		self.panel.window.worlds.itemClicked.connect(self.activate_wbuttons)
 
+		self.panel.window.open_gamerules.hide()
+		self.panel.window.open_packs.setEnabled(False)
 		self.panel.show()
 		self.panel_showed = True
 
@@ -346,6 +383,7 @@ class ClientApp:
 		if self.values['online'] == 1:
 			self.lock_buttons(True)
 			event = proto.Event(name = 'restart')
+			self.inethandler.put(event)
 		elif self.values['online'] == 0:
 			self.panel.window.restart.setEnabled(False)
 
@@ -362,30 +400,22 @@ class ClientApp:
 			self.inethandler.put(event)
 
 	def send_rmworld(self):
-		row = self.panel.window.worlds.currentRow()
-		if row:
-			item = self.panel.window.worlds.item(row)
+			item = self.panel.window.worlds.selectedItems()[0]
 			event = proto.Event(name = 'delete_world', data = {'worldname': item.worldname})
 			self.inethandler.put(event)
 
 	def send_select(self):
-		row = self.panel.window.worlds.currentRow()
-		if row:
-			item = self.panel.window.worlds.item(row)
+			item = self.panel.window.worlds.selectedItems()[0]
 			event = proto.Event(name = 'select_world', data = {'worldname': item.worldname})
 			self.inethandler.put(event)
 
 	def send_ban(self):
-		row = self.panel.window.players.currentRow()
-		if row:
-			item = self.panel.window.players.item(row)
+			item = self.panel.window.players.selectedItems()[0]
 			event = proto.Event(name = 'ban', data = {'nickname': item.text()})
 			self.inethandler.put(event)
 
 	def send_kick(self):
-		row = self.panel.window.players.currentRow()
-		if row:
-			item = self.panel.window.players.item(row)
+			item = self.panel.window.players.selectedItems()[0]
 			event = proto.Event(name = 'kick', data = {'nickname': item.text()})
 			self.inethandler.put(event)
 
@@ -398,50 +428,41 @@ class ClientApp:
 			self.inethandler.put(event)
 
 	def set_checkupdate(self):
-		dio = QtWidgets.QInputDialog()
-		dio.setIntMinimum(120)
-		dio.setIntValue(self.values['checkupdate_interval'])
-		integer, ok = dio.getInt(self.panel, 'Check updates interval', 'Set interval:')
+
+		integer, ok = QtWidgets.QInputDialog.getInt(self.panel, 'Check updates interval', 'Set interval:', value = self.values['checkupdate_interval'], min = 120)
 		if ok:
 			event = proto.Event(name = 'set', data = {'name': 'checkupdate_interval', 'value': integer})
 			self.inethandler.put(event)
 
 	def set_backup(self):
-		dio = QtWidgets.QInputDialog()
-		dio.setIntMinimum(1)
-		dio.setIntValue(round(self.values['backup_interval'] / 3600))
-		integer, ok = dio.getInt(self.panel, 'Backup interval', 'Set interval(in hours):')
+		integer, ok = QtWidgets.QInputDialog.getInt(self.panel, 'Backup interval', 'Set interval(in hours):', min = 1, value = round(self.values['backup_interval'] / 3600))
 		if ok:
 			event = proto.Event(name = 'set', data = {'name': 'backup_interval', 'value': 3600 * integer})
 			self.inethandler.put(event)
 
 	def set_reboot(self):
-		dio = QtWidgets.QInputDialog()
-		dio.setIntMinimum(1)
-		dio.setIntValue(round(self.values['reboot_interval'] / 86400))
-		integer, ok = dio.getInt(self.panel, 'Reboot interval', 'Set interval(in days):')
+		integer, ok = QtWidgets.QInputDialog.getInt(self.panel, 'Reboot interval', 'Set interval(in days):', value = round(self.values['reboot_interval'] / 86400), min = 1)
 		if ok:
 			event = proto.Event(name = 'set', data = {'name': 'reboot_interval', 'value':  86400 * integer})
 			self.inethandler.put(event)
 
 	def set_password(self):
-		dio = QtWidgets.QInputDialog()
-		text, ok = dio.getText(self.panel, 'Change password', 'New password:')
+		text, ok = QtWidgets.QInputDialog.getText(self.panel, 'Change password', 'New password:')
 		if ok:
 			event = proto.Event(name = 'set', data = {'name': 'password', 'value':  text})
 			self.inethandler.put(event)
 
 	def set_servername(self):
-		dio = QtWidgets.QInputDialog()
-		text, ok = dio.getText(self.panel, 'Change servername', 'New servername:')
+		text, ok = QtWidgets.QInputDialog.getText(self.panel, 'Change servername', 'New servername:')
 		if ok:
 			event = proto.Event(name = 'set', data = {'name': 'servername', 'value':  text})
 			self.inethandler.put(event)
 
-	def open_gamerules(self):
-		self.waiting_event['answer:gamerules'] = self._open_gamerules
+	# def open_gamerules(self):
+	# 	self.waiting_event['answer:gamerules'] = self._open_gamerules
 
-	def _open_gamerules(self):
+	def open_gamerules(self):
+		# print('aga')
 		dio = Dialog('gamerules')
 		for key, value in self.values['gamerules'].items():
 			if isinstance(value, bool):
@@ -457,6 +478,7 @@ class ClientApp:
 				dio.dialog.verticalLayout.addWidget(label, stretch = 1)
 				dio.dialog.verticalLayout.addWidget(lineedit, stretch = 2)
 		dio.open()
+		# print('ogo')
 
 	def _change_gamerule(self, rule, state):
 		if state == 1:
@@ -468,6 +490,7 @@ class ClientApp:
 
 	def open_settings(self):
 		dio = Dialog('settings')
+		dio.dialog.autoconnect.setChecked(self.confs.mconf['settings']['autoconnect'])
 		dio.dialog.autoconnect.stateChanged.connect(lambda x: self.confs.change_settings('autoconnect', x))
 		for i in self.confs.mconf['saves']:
 			dio.dialog.saveslist.addItem(i)
@@ -475,8 +498,6 @@ class ClientApp:
 		dio.open()
 
 	def _rmsave(self, dialog):
-		row = dialog.dialog.saveslist.currentRow()
-		if row:
 			item = dialog.dialog.saveslist.takeItem(row)
 			self.confs.remove_save(item.text())
 
@@ -487,7 +508,7 @@ class ClientApp:
 		self.waiting_event['answer:rpacks'] = self._open_packs
 
 	def _open_packs(self):
-		print(self.values['selected_worldinfo'])
+		# print(self.values['selected_worldinfo'])
 		dio = Dialog('packs')
 		dio.setWindowTitle('Managing world resource packs')
 		dio.dialog.hint.setText('{} - Resource packs'.format(self.values['selected_worldinfo']['world']['levelname']))
@@ -502,21 +523,26 @@ class ClientApp:
 					world_rpacks.append(rpacks.pop(gindex))
 					break
 
+		self.test = []
 		for pack in rpacks:
 			item = QtWidgets.QListWidgetItem(dio.dialog.globalPacks)
-			packWidget = QPackWidget(pack['path'], pack['name'], pack['version'], pack['uuid'], 0)
-			packWidget.ui.action.clicked.connect(lambda: self._pack_action(dio, item))
-			packWidget.ui.unimport.clicked.connect(lambda: self._pack_unimport(packWidget))
+			self.test.append(item)
+			packWidget = QPackWidget(dio.dialog.globalPacks, pack['path'], pack['name'], pack['version'], pack['uuid'], 0)
 			dio.dialog.globalPacks.addItem(item)
 			dio.dialog.globalPacks.setItemWidget(item, packWidget)
+			dio.dialog.globalPacks.itemWidget(item).ui.action.clicked.connect(lambda: self._pack_action(dio, dio.dialog.globalPacks.item(dio.dialog.globalPacks.count()-1)))
+			dio.dialog.globalPacks.itemWidget(item).ui.unimport.clicked.connect(lambda: self._pack_unimport(packWidget))
+			item.setSizeHint(QtCore.QSize(item.sizeHint().width(), 50))
+			# print(item, packWidget)
 
 		for pack in world_rpacks:
 			item = QtWidgets.QListWidgetItem(dio.dialog.worldPacks)
-			packWidget = QPackWidget(pack['path'], pack['name'], pack['version'], pack['uuid'], 1)
-			packWidget.ui.action.clicked.connect(lambda: self._pack_action(dio, item))
-			packWidget.ui.unimport.clicked.connect(lambda: self._pack_unimport(packWidget.ui))
+			packWidget = QPackWidget(dio.dialog.worldPacks, pack['path'], pack['name'], pack['version'], pack['uuid'], 1)
 			dio.dialog.worldPacks.addItem(item)
 			dio.dialog.worldPacks.setItemWidget(item, packWidget)
+			dio.dialog.worldPacks.itemWidget(item).ui.action.clicked.connect(lambda: self._pack_action(dio, dio.dialog.worldPacks.item(dio.dialog.worldPacks.count()-1)))
+			dio.dialog.worldPacks.itemWidget(item).ui.unimport.clicked.connect(lambda: self._pack_unimport(packWidget.ui))
+			item.setSizeHint(QtCore.QSize(item.sizeHint().width(), 50))
 			
 		dio.dialog.Import.clicked.connect(lambda: self._import_pack(dio))
 		dio.dialog.changetype.clicked.connect(lambda: self._packs_change_context(dialog = dio))
@@ -525,22 +551,35 @@ class ClientApp:
 		dio.open()
 
 	def _pack_action(self, dialog, item):
+		# print(item, self.test)
 		widget = item.listWidget().itemWidget(item)
 		if widget.side == 0:
-			dialog.dialog.globalPacks.takeItem(dialog.dialog.globalPacks.row(item))
+			item = dialog.dialog.globalPacks.takeItem(dialog.dialog.globalPacks.row(item))
+			item = QtWidgets.QListWidgetItem(dialog.dialog.worldPacks)
+			packWidget = QPackWidget(dialog.dialog.worldPacks, widget.path, widget.name, widget.version, widget.uuid, 1)
 			dialog.dialog.worldPacks.addItem(item)
-			widget.side = 1
-			widget.ui.unimport.hide()
+			dialog.dialog.worldPacks.setItemWidget(item, packWidget)
+			packWidget.ui.action.clicked.connect(lambda: self._pack_action(dialog, dialog.dialog.worldPacks.item(dialog.dialog.worldPacks.count()-1)))
+			packWidget.ui.unimport.clicked.connect(lambda: self._pack_unimport(packWidget.ui))
+			item.setSizeHint(QtCore.QSize(item.sizeHint().width(), 50))
 			event = proto.Event(name = 'apply_to_world', data = {'worldname': self.values['selected'], 'path': widget.path})
 			self.inethandler.put(event)
+			event = proto.Event(name = 'get', data = {'value': 'world_info', 'args': self.values['selected']})
+			self.inethandler.put(event) 
 
 
 		elif widget.side == 1:
-			dialog.dialog.worldPacks.takeItem(dialog.dialog.globalPacks.row(item))
+			item = dialog.dialog.worldPacks.takeItem(dialog.dialog.worldPacks.row(item))
+			item = QtWidgets.QListWidgetItem(dialog.dialog.globalPacks)
+			packWidget = QPackWidget(dialog.dialog.globalPacks, widget.path, widget.name, widget.version, widget.uuid, 0)
 			dialog.dialog.globalPacks.addItem(item)
-			widget.side = 0
-			widget.ui.unimport.show()
-			event = proto.Event(name = 'discard_from_world', data = {'worldname': self.values['selected'], 'uuid': widget.uuid, 'ver': widget.version})
+			dialog.dialog.globalPacks.setItemWidget(item, packWidget)
+			packWidget.ui.action.clicked.connect(lambda: self._pack_action(dialog, dialog.dialog.globalPacks.item(dialog.dialog.globalPacks.count()-1)))
+			packWidget.ui.unimport.clicked.connect(lambda: self._pack_unimport(packWidget.ui))
+			item.setSizeHint(QtCore.QSize(item.sizeHint().width(), 50))
+			event = proto.Event(name = 'discard_from_world', data = {'worldname': self.values['selected'], 'uuid': widget.uuid, 'ver': json.dumps(widget.version)})
+			self.inethandler.put(event)
+			event = proto.Event(name = 'get', data = {'value': 'world_info', 'args': self.values['selected']})
 			self.inethandler.put(event)
 
 	def _pack_unimport(self, widget):
@@ -604,7 +643,7 @@ class ClientApp:
 	def _import_pack(self, dialog = None, drangndrop = False, file = None):
 		if not drangndrop:
 			file = QtWidgets.QFileDialog.getOpenFileName(dialog, 'Choose file to import', './', 'Minecraft pack file (*.mcpack *.mcaddon)')[0]
-		print(file.split('.')[-1])
+		# print(file.split('.')[-1])
 		if file.split('.')[-1] == u'.mcaddon':
 			with zipfile.ZipFile(file, 'r') as mcaddon:
 				os.mkdir('./.temp')
@@ -654,7 +693,7 @@ class ClientApp:
 		self.panel.window.ban.setEnabled(True)
 
 	def event_reader(self, event):
-		print(event.name, event.data)
+		# print(event.name, event.data)
 		if event.name == 'console':
 			self.values['console_log'].append(event.data['line'].decode())
 			if self.panel_showed:
@@ -670,11 +709,12 @@ class ClientApp:
 					line = QtWidgets.QListWidgetItem(line[1:])
 					self.panel.window.console.addItem(line)
 				elif line.startswith('2'):
-					line = QtWidgets.QListWidgetItem(line[1:])
+					line = QtWidgets.QListWidgetItem('Console> ' + line[1:])
 					brush = QtGui.QBrush()
 					brush.setColor(QtGui.QColor(245, 169, 169))
 					line.setForeground(brush)
 					self.panel.window.console.addItem(line)
+				self.panel.window.console.scrollToItem(line)
 
 		elif event.name == 'value_changed':
 			if event.data['name'] == 'is_online':
@@ -754,19 +794,21 @@ class ClientApp:
 
 			elif event.data['name'] == 'selected_world':
 				self.values['selected'] = event.data['value'].decode()
+				if self.values['selected']:
+					self.inethandler.put(proto.Event(name = 'get', data = {'value': 'world_info', 'args': self.values['selected']}))
+				else:
+					self.values['selected_worldinfo'] = {'None': {'world': {'levelname': None}}}
+				self.panel.window.levelname.setText('Loading...')
 
 			elif event.data['name'] == 'worlds':
 				self.values['world_list'] = json.loads(event.data['value'].decode())
 
 			elif event.data['name'] == 'world_info':
-				print(self.values['selected'], json.loads(event.data['value'].decode()))
 				if self.values['selected'] in json.loads(event.data['value'].decode()):
-					print(True)
 					self.values['selected_worldinfo'] = json.loads(event.data['value'].decode())[self.values['selected']]
 					self.rpacks = self.values['selected_worldinfo']['resources']
 					self.bpacks = self.values['selected_worldinfo']['behaviors']
-					if self.panel_showed:
-						self.panel.window.levelname.setText(json.loads(event.data['value'].decode())[self.values['selected']]['world']['levelname'])
+					self.panel.window.levelname.setText(self.values['selected_worldinfo']['world']['levelname'])
 
 			elif event.data['name'] == 'players_online':
 				self.values['players_online'] = json.loads(event.data['value'].decode())
@@ -794,17 +836,18 @@ class ClientApp:
 		elif event.name == 'new_world':
 			world = World()
 			world.worldname = event.data['name'].decode()
-			self.inethandler.put(proto.Event(name = 'get', data = {'name': 'world_info', 'args': world.worldname}))
+			self.inethandler.put(proto.Event(name = 'get', data = {'value': 'world_info', 'args': world.worldname}))
 			self.waiting_event['answer:world_info'] = lambda x: self._add_world(world, x)
 
 		elif event.name == 'rem_world':
 			count = self.panel.window.worlds.count()
 			i = 0
-			while i < count-1:
+			while i < count:
 				item = self.panel.window.worlds.item(i)
 				if item.worldname == event.data['name'].decode():
 					self.panel.window.worlds.takeItem(i)
 					break
+				i += 1
 
 		elif event.name == 'online_event':
 			if event.data['type'] == 0:
@@ -812,18 +855,20 @@ class ClientApp:
 			else:
 				count = self.panel.window.players.count()
 				i = 0
-				while i < count-1:
+				while i < count:
 					item = self.panel.window.players.item(i)
 					if item.text() == event.data['name'].decode():
 						self.panel.window.players.takeItem(i)
 						break
+					i += 1
 
 		elif event.name == 'restart':
 			self.lock_buttons(True)
 			self.waiting_event['stopped'] = lambda: self.lock_buttons(True)
 
 		elif event.name == 'select_world':
-			self.values['selected'] == event.data['name'].decode()
+			self.values['selected'] = event.data['name'].decode()
+			self.panel.window.levelname.setText('Loading...')
 			self.inethandler.put(proto.Event(name = 'get', data = {'value': 'world_info', 'args': event.data['name'].decode()}))
 
 		elif event.name == 'updating':
@@ -847,17 +892,19 @@ class ClientApp:
 		elif event.name == 'error':
 			self.error(event.data['code'])
 
-		print(1)
+		# print(1)
 		if event.name in self.waiting_event:
-			print(2)
+			# print(2)
 			self.waiting_event.pop(event.name)()
 		elif event.name == 'answer':
-			print(3)
+			# print(3)
 			if 'answer:{}'.format(event.data['name']) in self.waiting_event:
-				print(4)
+				# print(4)
 				calb = self.waiting_event.pop('answer:{}'.format(event.data['name']))
 				if event.data['name'] == 'world_info':
-					calb(json.loads(event.data['value'].decode())['world']['levelname'])
+					world = json.loads(event.data['value'].decode())
+					levelname = world[list(world.keys())[0]]['world']['levelname']
+					calb(levelname)
 				else:
 					calb()
 
@@ -866,6 +913,7 @@ class ClientApp:
 		self.panel.window.worlds.addItem(world)
 
 	def return_to_logon(self):
+		self.lock_buttons(False)
 		self.logon_state = 0
 		self.panel.hide()
 		self.panel_showed = False
@@ -877,10 +925,47 @@ class ClientApp:
 		self.logon.window.status.setText("")
 		self.logon.window.hint1.setText("Saved ips")
 		self.logon.window.settings.setText("Settings")
-		self.logon.window.nextb.show()
+		self.logon.window.port.show()
+		self.logon.window.port.setEnabled(True)
+		self.logon.window.ip.show()
+		self.logon.window.ip.setEnabled(True)
 		self.logon.window.nextb.setEnabled(True)
-
+		self.logon.window.ip.clear()
 		self.logon.show()
+
+		self.values = {
+		'servername': '',
+		'console_log': [],
+		'online': 0,
+		'backup_interval': 0,
+		'checkupdate_interval': 0,
+		'reboot_inteval': 0,
+		'startup_action': '',
+		'serverprop': None,
+		'selected': '',
+		'selected_worldinfo': {},
+		'players_online': {},
+		'world_list': [],
+		'gamerules': {}
+
+		}
+
+		self.rpacks = {}
+		self.bpacks = {}
+
+		self.serverdata = {
+		'ip': None,
+		'port': None,
+		'password': ''
+		}
+
+		self.pending_event_buffer = []
+		self.waiting_event = {'event:key:value': 'function'}
+
+		self.logon_state = 0
+		self.logon_onllock = False
+		self.dontshow_logon = False
+		self.panel_showed = False
 
 
 

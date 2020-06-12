@@ -23,6 +23,7 @@ class Config:
 			json.dump(self.mconf, confw)
 
 	def change_settings(self, param, value):
+		print('change_settings', param, value)
 		self.mconf['settings'][param] = value
 		self._sync()
 

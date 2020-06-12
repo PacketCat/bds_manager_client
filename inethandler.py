@@ -2,13 +2,14 @@ from PyQt5 import QtCore, QtNetwork
 import time, os, queue, struct, datetime, threading
 import proto, hashlib
 
+
+
 class Handler(QtCore.QObject):
-	def __init__(self, address, connected_callback, error_callback, readyread_callback, disconnected_callback):
+	def __init__(self, connected_callback, error_callback, readyread_callback, disconnected_callback):
 		super().__init__()
 
 		#properties
 		self.connected = False
-		self._address = address
 
 		self.authed = 0
 
@@ -23,9 +24,22 @@ class Handler(QtCore.QObject):
 		self.socket.error.connect(error_callback)
 		self.socket.disconnected.connect(disconnected_callback)
 		self.socket.bytesWritten.connect(self._handle_written)
+		self.timer = QtCore.QTimer()
+		self.timer.timeout.connect(lambda: self.timeout(error_callback))
+		
 
-		self.socket.waitForConnected(1000)
+	def connect(self, address):
+		self._address = address
 		self.socket.connectToHost(address[0], address[1])
+
+	def timeout(self, error):
+		error(-25)
+		self.socket.setErrorString('Connection timeout')
+		self.timer.stop()
+
+	def connected(self, connect_c):
+		self.timer.stop()
+		connected_c()
 
 	def put(self, event, raw_bytes = None, fileno = None, callback = None):
 		self.socket.write(proto.encode_event(0, event))
@@ -58,15 +72,16 @@ class Handler(QtCore.QObject):
 		self.socket.readyRead.connect(self._handle_readyread)
 		lent = self.socket.read(2)
 		data = self.socket.read(struct.unpack('>H', lent)[0])
-		print(data)
+		# print(data)
 		event = proto.decode_event(0, data, 0)
-		print(event.name)
+		# print(event.name)
 		if event.name == 'socket_connected':
 			self.authed = 1
 			self.auth_callback(0)
 			return
 		elif event.name == 'error':
-			self.socket.readyRead.connect(self._wait_auth)
+			self.buffer = []
+			self.socket.readyRead.disconnect(self._handle_readyread)
 			self.auth_callback(event.data['code'])
 
 	def send_file(self, fileno, callback):
@@ -83,7 +98,8 @@ class Handler(QtCore.QObject):
 
 	def get(self):
 		event = proto.decode_event(0, self.buffer.pop(0), 0)
-		print(event.name)
+		if not event:
+			return proto.Event(name = error, data = {'code': 404})
 		return event
 
 	def _handle_written(self, amount):

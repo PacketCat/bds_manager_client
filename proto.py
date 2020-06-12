@@ -1,5 +1,9 @@
 #PROTO
-import dataclasses, struct
+import dataclasses, struct, sys
+
+DEBUG = None
+if '-d' in sys.argv:
+	DEBUG = True
 
 class Event:
 	def __init__(self, name = '', data = {}, from_fd = 0):
@@ -290,7 +294,7 @@ def decode_event(side, packet, fromfd):
 		elif event_key == 'capply':
 			data = {
 			'worldname': unpack_from('>1510s', packet, 2).rstrip(b'\x00'),
-			'path': unpack_from('>1510s', packet, struct.calcsize('>H1510s').rstrip(b'\x00'))
+			'path': unpack_from('>1510s', packet, struct.calcsize('>H1510s')).rstrip(b'\x00')
 			}
 			event = Event(name = 'apply_to_world', data = data, from_fd = fromfd)
 			return event
@@ -348,7 +352,7 @@ def decode_event(side, packet, fromfd):
 
 def encode_event(side, event):
 	data = _encode_event(side, event)
-	print(data)
+	if DEBUG: print(data)
 	header = struct.pack('>H', len(data))
 	return header+data
 
@@ -563,13 +567,13 @@ def _encode_event(side, event):
 			return packet
 			
 		elif event.name == 'apply_to_world':
-			packet = CL_HEADERS['capply'] + struct.pack('>1510s1510s', event.data['worldname'], event.data['path'])
+			packet = CL_HEADERS['capply'] + struct.pack('>1510s1510s', event.data['worldname'].encode(), event.data['path'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
 			
 		elif event.name == 'discard_from_world':
-			packet = CL_HEADERS['cdiscard'] + struct.pack('>1510s36s256s', event.data['worldname'], event.data['uuid'], event.data['ver'].encode())
+			packet = CL_HEADERS['cdiscard'] + struct.pack('>1510s36s256s', event.data['worldname'].encode(), event.data['uuid'].encode(), event.data['ver'].encode())
 			if LOG:
 				LOG.debug('main', 'Formed packet of {} event: {}'.format(event.name, packet))
 			return packet
