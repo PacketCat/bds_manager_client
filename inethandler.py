@@ -1,112 +1,169 @@
-from PyQt5 import QtCore, QtNetwork
-import time, os, queue, struct, datetime, threading
-import proto, hashlib
+import socket, select, queue, proto, time, datetime, hashlib, struct, sys
+
+_ADDRESS = ('', 19130)
+
+LOADED_FILENOS = {}
+
+DEBUG = None
+
+print(DEBUG)
+
+class FileWriter:
+	def __init__(self, length):
+		self.buffer = b''
+		self.total = length
+		self.received = 0
+		self.fileno = 0
+	def __repr__(self):
+		return "< FileWriter object, saved {}% >".format(round(self.received/self.total*100, 1))
+
+	def put(self, data):
+		if DEBUG: print(self.procent())
+		self.buffer += data
+		self.received += len(data)
+		if self.received == self.total:
+			with open('./.temp/{}'.format(time.time()), 'wb') as file:
+				file.write(self.buffer)
+				LOADED_FILENOS[len(LOADED_FILENOS)] = file.name
+				self.fileno = len(LOADED_FILENOS)-1
+		elif self.received > self.total:
+			self.fileno = -1
+
+	def procent(self):
+		return round(self.received/self.total*100, 1)
+
+class InetHandler:
+	def __init__(self, input_queue, outq, password, db):
+		global _ADDRESS
+		self.log = db.log
+		self.input_queue = input_queue
+		self.outp = outq
+		self.pswd = password
+		self.db = db
+		self.return_var = None
+
+		if 'ip:port' in self.db.mconf['serverconfig'].keys():
+			_ADDRESS = self.db.mconf['serverconfig']['ip:port']
+
+
+		self.listener = socket.create_server(_ADDRESS)
+		self.clientsockets = {}
+		self.clientstate = {}
+
+		self.epoll = select.epoll()
+
+	def run(self):
+		try:
+			self.return_var = self._run()
+		except Exception as e:
+			self.log.error('main', e)
+			self.return_var = -1
+			#self.run()
+
+	def _run(self):
+		self.listener.setblocking(0)
+		self.listener.listen()
+		self.epoll.register(self.listener.fileno(), select.EPOLLIN)
+
+		while True:
+			events = self.epoll.poll(0.5)
+			for fd, event in events:
+
+				if fd == self.listener.fileno():
+					clientsock, address = self.listener.accept()
+					clientsock.setblocking(0)
+					self.epoll.register(clientsock.fileno(), select.EPOLLIN)
+					self.clientsockets[clientsock.fileno()] = clientsock
+					self.clientstate[clientsock.fileno()] = 'waitpass'
+					self.log.debug('main', 'чилипиздрик connected')
+
+				elif event & select.EPOLLHUP:
+					self.log.debug('main', 'чилипиздрик disconnected')
+					try:
+						self.clientsockets[fd].close()
+						self.clientsockets.pop(fd)
+						self.clientstate.pop(fd)
+					except KeyError:
+						pass
+					self.epoll.unregister(fd)
+
+				elif event & select.EPOLLIN:
+					mess = self.clientsockets[fd].recv(2)
+					if not mess:
+						self.log.debug('main', 'чилипиздрик disconnected')
+						self.clientsockets[fd].close()
+						self.clientsockets.pop(fd)
+						self.clientstate.pop(fd)
+						self.epoll.unregister(fd)
+						continue
+					lent = struct.unpack('>H', mess)[0]
+					packet = self.clientsockets[fd].recv(lent)
+					try:
+						in_event = proto.decode_event(1, packet, fd)
+						if DEBUG: print(in_event.name, in_event.data)
+					except Exception as e:
+						self.log.error('main', e)
+						in_event = None
+
+					if self.clientstate[fd] == 'waitpass':
+						#print(in_event.data['password'], hashlib.sha512(datetime.datetime.now().minute.to_bytes(1, byteorder='big') + password.encode()).digest())
+						if in_event and in_event.name == 'send_password':
+							if in_event.data['password'] == hashlib.sha512(datetime.datetime.now().minute.to_bytes(1, byteorder='big') + self.pswd.encode()).digest() or in_event.data['password'] == hashlib.sha512((datetime.datetime.now().minute-1).to_bytes(1, byteorder='big') + self.pswd.encode()).digest():
+								self.clientstate[fd] = 0
+								self.outp.put(proto.Event(name = 'socket_connected', data = {}, from_fd = fd))
+								for line in self.log.get_past_lines():
+									self.outp.put(proto.Event(name = 'console', data = {'line': line[:1510]}, from_fd = fd))
+								self.log.debug('main', 'чилипиздрик logged in')
+
+							else:
+								self.outp.put(proto.Event(name = 'error', data = {'code': -1}, from_fd = fd))
+
+						else:
+							self.outp.put(proto.Event(name = 'error', data = {'code': 400}, from_fd = fd))
+
+					elif isinstance(self.clientstate[fd], dict):
+						if 'upload_handler' in self.clientstate[fd].keys():
+							self.clientstate[fd]['upload_handler'].put(packet)
+							if self.clientstate[fd]['upload_handler'].fileno == -1:
+								self.outp.put(proto.Event(name = 'error', data = {'code': 400}, from_fd = fd))
+
+							elif self.clientstate[fd]['upload_handler'].fileno > 0:
+								self.outp.put(proto.Event(name = 'replyfileno', data = {'fileno': self.clientstate[fd]['upload_handler'].fileno}, from_fd = fd))
+								self.clientstate[fd] = 0
+
+					elif self.clientstate[fd] == 0:
+						if in_event and in_event.name == 'disconnect':
+							self.clientsockets[fd].close()
+							self.clientstate.pop[fd]
+							self.epoll.unregister(fd)
+							self.log.debug('main', 'чилипиздрик disconnected')
+
+						elif in_event and in_event.name == 'upload':
+							self.clientstate[fd] = {'upload_handler': FileWriter(in_event.data['size'])}
+
+						elif in_event:
+							self.input_queue.put(in_event)
+
+						else:
+							self.outp.put(proto.Event(name = 'error', data = {'code': -2}, from_fd = fd))
 
 
 
-class Handler(QtCore.QObject):
-	def __init__(self, connected_callback, error_callback, readyread_callback, disconnected_callback):
-		super().__init__()
-
-		#properties
-		self.connected = False
-
-		self.authed = 0
-
-		self.buffer = []
-
-		self.readyread = readyread_callback
-
-		self._written = 0
-
-		self.socket = QtNetwork.QTcpSocket()
-		self.socket.connected.connect(connected_callback)
-		self.socket.error.connect(error_callback)
-		self.socket.disconnected.connect(disconnected_callback)
-		self.socket.bytesWritten.connect(self._handle_written)
-		self.timer = QtCore.QTimer()
-		self.timer.timeout.connect(lambda: self.timeout(error_callback))
-		
-
-	def connect(self, address):
-		self._address = address
-		self.socket.connectToHost(address[0], address[1])
-
-	def timeout(self, error):
-		error(-25)
-		self.socket.setErrorString('Connection timeout')
-		self.timer.stop()
-
-	def connected(self, connect_c):
-		self.timer.stop()
-		connected_c()
-
-	def put(self, event, raw_bytes = None, fileno = None, callback = None):
-		self.socket.write(proto.encode_event(0, event))
-		if raw_bytes:
-			for i, d in enumerate(raw_bytes):
-				b = struct.pack('>H', len(d)) + d
-				self.socket.write(b)
-				if callback: callback(i+1)
-		if fileno:
-			threading.Thread(target = self.send_file, args = (fileno, None)).start()
-
-	def _handle_readyread(self):
-		buf = self.socket.readAll()
-		while buf:
-			lent = buf[:2]
-			buf = buf[2:]
-			data = buf[:struct.unpack('>H', lent)[0]]
-			buf = buf[struct.unpack('>H', lent)[0]:]
-			print(len(data))
-			self.buffer.append(data)
-			self.readyread()
-
-	def auth(self, password, callback):
-		password = hashlib.sha512(datetime.datetime.now().minute.to_bytes(1, byteorder='big') + password.encode()).digest()
-		self.socket.write(proto.encode_event(0, proto.Event(name = 'send_password', data = {'password': password})))
-		self.auth_callback = callback
-		self._wait_auth()
-
-	def _wait_auth(self):
-		self.socket.waitForReadyRead()
-		self.socket.readyRead.connect(self._handle_readyread)
-		lent = self.socket.read(2)
-		data = self.socket.read(struct.unpack('>H', lent)[0])
-		# print(data)
-		event = proto.decode_event(0, data, 0)
-		# print(event.name)
-		if event.name == 'socket_connected':
-			self.authed = 1
-			self.auth_callback(0)
-			return
-		elif event.name == 'error':
-			self.buffer = []
-			self.socket.readyRead.disconnect(self._handle_readyread)
-			self.auth_callback(event.data['code'])
-
-	def send_file(self, fileno, callback):
-		ind = 0
-		chunck = 1
-		while chunck:
-			chunck = fileno.read(1024)
-			header = struct.pack('>H', len(chunck))
-			self.socket.write(header + chunck)
-			if ind % 20 == 0 and callback: callback(ind+1)
-			ind += 1
-		fileno.close()
+			while not self.outp.empty():
+				outcomming_event = self.outp.get()
+				if DEBUG: print('main', outcomming_event.data)
+				if outcomming_event.from_fd == 0:
+					for key, value in self.clientsockets.items():
+						if self.clientstate[value.fileno()] != 'waitpass':
+							value.send(proto.encode_event(1, outcomming_event))
+				else:
+					try:
+						self.clientsockets[outcomming_event.from_fd].send(proto.encode_event(1, outcomming_event))
+					except BrokenPipeError:
+						self.clientsockets.pop(outcomming_event.from_fd)
+						self.epoll.unregister(fd)
 
 
-	def get(self):
-		event = proto.decode_event(0, self.buffer.pop(0), 0)
-		if not event:
-			return proto.Event(name = 'error', data = {'code': 404})
-		return event
 
-	def _handle_written(self, amount):
-		self._written = amount
-
-	def disconnect(self):
-		self.socket.disconnectFromHost()
 
 
